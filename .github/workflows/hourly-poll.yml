@@ -19,23 +19,15 @@ jobs:
   poll:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Environment secrets (Settings → Environments → Production) 사용
     environment: Production
     steps:
       - name: Trigger Vercel poll API
         env:
-          API_BASE_URL: ${{ secrets.LEADINGROOM_API_URL }}
           POLL_SECRET: ${{ secrets.POLL_SECRET }}
         run: |
           set -euo pipefail
-          if [ -z "${API_BASE_URL:-}" ]; then
-            echo "LEADINGROOM_API_URL secret is empty."
-            echo "Add it under Settings → Environments → Production (same place as POLL_SECRET)"
-            echo "Value: https://leading-room-server-ybtk.vercel.app"
-            exit 1
-          fi
+          BASE='https://leading-room-server-ybtk.vercel.app'
 
-          BASE="${API_BASE_URL%/}"
           MARKETS_INPUT="${{ github.event.inputs.markets }}"
           if [ -n "$MARKETS_INPUT" ]; then
             IFS=',' read -r -a MARKETS <<< "$MARKETS_INPUT"
