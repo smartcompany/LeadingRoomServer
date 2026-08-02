@@ -1,0 +1,3 @@
+-- Applied via Supabase MCP: leadingroom_core_schema
+-- Tables use lr_ prefix (shared project)
+-- See remote migration history for source of truth.
