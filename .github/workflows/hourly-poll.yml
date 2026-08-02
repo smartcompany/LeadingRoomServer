@@ -26,7 +26,7 @@ jobs:
           POLL_SECRET: ${{ secrets.POLL_SECRET }}
         run: |
           set -euo pipefail
-          BASE='https://leading-room-server-ybtk.vercel.app'
+          BASE='https://leading-room-server.vercel.app'
 
           MARKETS_INPUT="${{ github.event.inputs.markets }}"
           if [ -n "$MARKETS_INPUT" ]; then
