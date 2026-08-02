@@ -10,7 +10,7 @@ const NEUTRAL_QUAL: QualitativeResult = {
   newsScore: null,
   newsSummary: null,
   score: 0,
-  notes: ['백테스트 · 기술 분석만'],
+  notes: [],
 };
 
 export interface BacktestTrade {
