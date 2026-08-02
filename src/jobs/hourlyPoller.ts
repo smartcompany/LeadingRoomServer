@@ -70,17 +70,13 @@ async function processSymbol(symbol: SymbolRow): Promise<void> {
     .single();
   if (snapErr) throw snapErr;
 
-  if (!marketOpen) {
-    console.log(`[poll] candles saved, skip signal (closed) ${symbol.ticker}`);
-    return;
-  }
-
+  // 일봉 페이퍼 시그널은 장외에도 생성 (분석 시점 기준)
   const open = await hasOpenPosition(client, symbol.id);
   const decision = decideSignal(technical, qualitative, open);
   const lastPrice = bars1d[bars1d.length - 1]!.close;
 
   console.log(
-    `[poll] ${symbol.ticker} score=${decision.combinedScore.toFixed(2)} side=${decision.side}`,
+    `[poll] ${symbol.ticker} score=${decision.combinedScore.toFixed(2)} side=${decision.side} marketOpen=${marketOpen}`,
   );
 
   if (decision.side === 'hold') return;

@@ -3,6 +3,7 @@ import { getAdapter } from '../adapters/index.js';
 import { getAdminClient } from '../lib/supabase.js';
 import { env } from '../lib/env.js';
 import { runHourlyPoll } from '../jobs/hourlyPoller.js';
+import { displayStance } from '../engines/signal.js';
 import type { MarketId, SymbolRow, Timeframe } from '../types/index.js';
 
 export const apiRouter = Router();
@@ -66,6 +67,65 @@ apiRouter.get('/signals', async (req, res) => {
     return;
   }
   res.json({ signals: data });
+});
+
+/** 종목별 최신 분석 + 관망/매수/매도 표시 */
+apiRouter.get('/analyses/latest', async (_req, res) => {
+  const client = getAdminClient();
+  const { data: symbols, error: symErr } = await client
+    .from('lr_symbols')
+    .select('id, ticker, display_name, market_id, is_free')
+    .eq('is_active', true);
+  if (symErr) {
+    res.status(500).json({ error: symErr.message });
+    return;
+  }
+
+  const analyses = [];
+  for (const sym of symbols ?? []) {
+    const { data: row, error } = await client
+      .from('lr_analysis_snapshots')
+      .select('id, ts, tech_score, qual_score, combined_score, technical, qualitative')
+      .eq('symbol_id', sym.id)
+      .order('ts', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
+    }
+    if (!row) continue;
+
+    const combined = Number(row.combined_score);
+    const technical = row.technical as { notes?: string[] } | null;
+    const qualitative = row.qualitative as { notes?: string[] } | null;
+    const notes = [
+      ...(technical?.notes ?? []),
+      ...(qualitative?.notes ?? []),
+    ];
+    analyses.push({
+      id: row.id,
+      symbolId: sym.id,
+      ticker: sym.ticker,
+      displayName: sym.display_name,
+      marketId: sym.market_id,
+      isFree: sym.is_free,
+      side: displayStance(combined),
+      combinedScore: combined,
+      techScore: Number(row.tech_score),
+      qualScore: Number(row.qual_score),
+      rationale: notes.length > 0 ? notes.join(' · ') : '특이 시그널 없음',
+      analyzedAt: row.ts,
+    });
+  }
+
+  analyses.sort((a, b) => {
+    const order = { buy: 0, sell: 1, hold: 2 } as const;
+    const bySide = order[a.side as keyof typeof order] - order[b.side as keyof typeof order];
+    if (bySide !== 0) return bySide;
+    return Math.abs(b.combinedScore) - Math.abs(a.combinedScore);
+  });
+  res.json({ analyses });
 });
 
 apiRouter.get('/candles/:symbolId', async (req, res) => {

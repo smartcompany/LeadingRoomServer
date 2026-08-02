@@ -526,8 +526,13 @@ async function analyzeQualitative(params) {
 }
 
 // src/engines/signal.ts
-var BUY_THRESHOLD = 0.45;
+var BUY_THRESHOLD = 0.1;
 var SELL_THRESHOLD = -0.35;
+function displayStance(combinedScore) {
+  if (combinedScore >= BUY_THRESHOLD) return "buy";
+  if (combinedScore <= SELL_THRESHOLD) return "sell";
+  return "hold";
+}
 function decideSignal(technical, qualitative, hasOpenPosition2) {
   let combined = technical.score * 0.7 + qualitative.score * 0.3;
   if (qualitative.marketBias === "risk_off") {
@@ -680,15 +685,11 @@ async function processSymbol(symbol) {
     combined_score: technical.score * 0.7 + qualitative.score * 0.3
   }).select("id").single();
   if (snapErr) throw snapErr;
-  if (!marketOpen) {
-    console.log(`[poll] candles saved, skip signal (closed) ${symbol.ticker}`);
-    return;
-  }
   const open = await hasOpenPosition(client, symbol.id);
   const decision = decideSignal(technical, qualitative, open);
   const lastPrice = bars1d[bars1d.length - 1].close;
   console.log(
-    `[poll] ${symbol.ticker} score=${decision.combinedScore.toFixed(2)} side=${decision.side}`
+    `[poll] ${symbol.ticker} score=${decision.combinedScore.toFixed(2)} side=${decision.side} marketOpen=${marketOpen}`
   );
   if (decision.side === "hold") return;
   const since = new Date(Date.now() - 6 * 60 * 60 * 1e3).toISOString();
@@ -789,6 +790,51 @@ apiRouter.get("/signals", async (req, res) => {
     return;
   }
   res.json({ signals: data });
+});
+apiRouter.get("/analyses/latest", async (_req, res) => {
+  const client = getAdminClient();
+  const { data: symbols, error: symErr } = await client.from("lr_symbols").select("id, ticker, display_name, market_id, is_free").eq("is_active", true);
+  if (symErr) {
+    res.status(500).json({ error: symErr.message });
+    return;
+  }
+  const analyses = [];
+  for (const sym of symbols ?? []) {
+    const { data: row, error } = await client.from("lr_analysis_snapshots").select("id, ts, tech_score, qual_score, combined_score, technical, qualitative").eq("symbol_id", sym.id).order("ts", { ascending: false }).limit(1).maybeSingle();
+    if (error) {
+      res.status(500).json({ error: error.message });
+      return;
+    }
+    if (!row) continue;
+    const combined = Number(row.combined_score);
+    const technical = row.technical;
+    const qualitative = row.qualitative;
+    const notes = [
+      ...technical?.notes ?? [],
+      ...qualitative?.notes ?? []
+    ];
+    analyses.push({
+      id: row.id,
+      symbolId: sym.id,
+      ticker: sym.ticker,
+      displayName: sym.display_name,
+      marketId: sym.market_id,
+      isFree: sym.is_free,
+      side: displayStance(combined),
+      combinedScore: combined,
+      techScore: Number(row.tech_score),
+      qualScore: Number(row.qual_score),
+      rationale: notes.length > 0 ? notes.join(" \xB7 ") : "\uD2B9\uC774 \uC2DC\uADF8\uB110 \uC5C6\uC74C",
+      analyzedAt: row.ts
+    });
+  }
+  analyses.sort((a, b) => {
+    const order = { buy: 0, sell: 1, hold: 2 };
+    const bySide = order[a.side] - order[b.side];
+    if (bySide !== 0) return bySide;
+    return Math.abs(b.combinedScore) - Math.abs(a.combinedScore);
+  });
+  res.json({ analyses });
 });
 apiRouter.get("/candles/:symbolId", async (req, res) => {
   const timeframe = req.query.timeframe || "1d";

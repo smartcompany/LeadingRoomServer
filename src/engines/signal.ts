@@ -13,8 +13,15 @@ export interface SignalDecision {
   stopHintPct: number | null;
 }
 
-const BUY_THRESHOLD = 0.45;
+const BUY_THRESHOLD = 0.1;
 const SELL_THRESHOLD = -0.35;
+
+/** 홈 표시용 관망/매수/매도 (점수만으로 판정, 포지션 무관) */
+export function displayStance(combinedScore: number): 'buy' | 'sell' | 'hold' {
+  if (combinedScore >= BUY_THRESHOLD) return 'buy';
+  if (combinedScore <= SELL_THRESHOLD) return 'sell';
+  return 'hold';
+}
 
 export function decideSignal(
   technical: TechnicalResult,
