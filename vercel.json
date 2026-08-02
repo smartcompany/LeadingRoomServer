@@ -1,7 +1,9 @@
 {
+  "installCommand": "npm install --no-audit --no-fund",
+  "buildCommand": "npm run build",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
   "functions": {
-    "api/index.ts": {
+    "api/index.js": {
       "maxDuration": 60
     }
   }

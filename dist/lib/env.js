@@ -22,12 +22,38 @@ function required(name) {
     }
     return value;
 }
+/** Lazy so Vercel build/import analysis does not require secrets at module load. */
+let cached;
 export const env = {
-    port: Number(process.env.PORT ?? '8787'),
-    supabaseUrl: required('SUPABASE_URL'),
-    supabasePublishableKey: required('SUPABASE_PUBLISHABLE_KEY'),
-    supabaseServiceRoleKey: required('SUPABASE_SERVICE_ROLE_KEY'),
-    geminiApiKey: process.env.GEMINI_API_KEY ?? '',
-    /** GitHub Actions → POST /api/poll 보호용. 비어 있으면 로컬 전용(미검증). */
-    pollSecret: process.env.POLL_SECRET ?? '',
+    get port() {
+        return Number(process.env.PORT ?? '8787');
+    },
+    get supabaseUrl() {
+        return load().supabaseUrl;
+    },
+    get supabasePublishableKey() {
+        return load().supabasePublishableKey;
+    },
+    get supabaseServiceRoleKey() {
+        return load().supabaseServiceRoleKey;
+    },
+    get geminiApiKey() {
+        return load().geminiApiKey;
+    },
+    get pollSecret() {
+        return load().pollSecret;
+    },
 };
+function load() {
+    if (cached)
+        return cached;
+    cached = {
+        port: Number(process.env.PORT ?? '8787'),
+        supabaseUrl: required('SUPABASE_URL'),
+        supabasePublishableKey: required('SUPABASE_PUBLISHABLE_KEY'),
+        supabaseServiceRoleKey: required('SUPABASE_SERVICE_ROLE_KEY'),
+        geminiApiKey: process.env.GEMINI_API_KEY ?? '',
+        pollSecret: process.env.POLL_SECRET ?? '',
+    };
+    return cached;
+}
