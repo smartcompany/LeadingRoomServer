@@ -142,7 +142,7 @@ export function analyzeTechnical(bars1d: CandleBar[]): TechnicalResult {
   }
 
   const atr = atrPct(source, 14);
-  if (atr !== null) notes.push(`ATR 손절 추정 ${atr.toFixed(1)}%`);
+  // ATR은 매수/매도 점수가 아니라 손절 거리 힌트용 (notes에 넣지 않음)
 
   const lookback = source.slice(-30);
   const resistance = Math.max(...lookback.map((b) => b.high));

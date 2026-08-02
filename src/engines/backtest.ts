@@ -1,5 +1,6 @@
 import { analyzeTechnical } from './technical.js';
 import { decideSignal } from './signal.js';
+import { buildScoreLines, type ScoreLine } from './scoreBreakdown.js';
 import type { CandleBar, QualitativeResult } from '../types/index.js';
 
 const MIN_BARS = 55;
@@ -19,6 +20,11 @@ export interface BacktestTrade {
   executedAt: string;
   pnlPct: number | null;
   rationale: string;
+  stopHintPct: number | null;
+  techScore: number;
+  combinedScore: number;
+  forcedSell: boolean;
+  scoreLines: ScoreLine[];
 }
 
 export interface BacktestSummary {
@@ -61,6 +67,8 @@ export function runBacktest(bars: CandleBar[]): BacktestResult {
     const decision = decideSignal(technical, NEUTRAL_QUAL, hasOpen);
     const price = bar.close;
     const executedAt = bar.ts.toISOString();
+    const scoreLines = buildScoreLines(technical);
+    const forcedSell = decision.rationale.includes('추세 붕괴 청산');
 
     if (decision.side === 'buy' && !hasOpen) {
       entryPrice = price;
@@ -70,6 +78,11 @@ export function runBacktest(bars: CandleBar[]): BacktestResult {
         executedAt,
         pnlPct: null,
         rationale: decision.rationale,
+        stopHintPct: null,
+        techScore: technical.score,
+        combinedScore: decision.combinedScore,
+        forcedSell: false,
+        scoreLines,
       });
       continue;
     }
@@ -83,6 +96,11 @@ export function runBacktest(bars: CandleBar[]): BacktestResult {
         executedAt,
         pnlPct,
         rationale: decision.rationale,
+        stopHintPct: decision.stopHintPct,
+        techScore: technical.score,
+        combinedScore: decision.combinedScore,
+        forcedSell,
+        scoreLines,
       });
       entryPrice = null;
     }

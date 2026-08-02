@@ -45,7 +45,7 @@ export function decideSignal(
       strength,
       combinedScore: combined,
       rationale,
-      stopHintPct: technical.atrPct,
+      stopHintPct: null,
     };
   }
 
