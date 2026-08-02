@@ -4,6 +4,7 @@ import { getAdminClient } from '../lib/supabase.js';
 import { env } from '../lib/env.js';
 import { runHourlyPoll } from '../jobs/hourlyPoller.js';
 import { displayStance } from '../engines/signal.js';
+import { runBacktest } from '../engines/backtest.js';
 import type { MarketId, SymbolRow, Timeframe } from '../types/index.js';
 
 export const apiRouter = Router();
@@ -219,6 +220,46 @@ apiRouter.get('/trades/:symbolId', async (req, res) => {
     return;
   }
   res.json({ trades: data });
+});
+
+/** 차트 백데이터 시그널 walk-forward 백테스트 */
+apiRouter.get('/backtest/:symbolId', async (req, res) => {
+  const timeframe = ((req.query.timeframe as string) || '1d') as Timeframe;
+  const limit = Math.min(Number(req.query.limit ?? defaultLimit(timeframe)), 500);
+  const allowed: Timeframe[] = ['1h', '4h', '1d', '1w', '1mo', '1y'];
+  if (!allowed.includes(timeframe)) {
+    res.status(400).json({ error: `unsupported timeframe: ${timeframe}` });
+    return;
+  }
+
+  const client = getAdminClient();
+  const { data: symbol, error: symErr } = await client
+    .from('lr_symbols')
+    .select('*')
+    .eq('id', req.params.symbolId)
+    .maybeSingle();
+  if (symErr) {
+    res.status(500).json({ error: symErr.message });
+    return;
+  }
+  if (!symbol) {
+    res.status(404).json({ error: 'symbol not found' });
+    return;
+  }
+
+  try {
+    const adapter = getAdapter(symbol.market_id as MarketId);
+    const bars = await adapter.fetchCandles(symbol as SymbolRow, timeframe, limit);
+    const result = runBacktest(bars);
+    res.json({
+      timeframe,
+      summary: result.summary,
+      trades: result.trades,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'backtest failed';
+    res.status(500).json({ error: message });
+  }
 });
 
 apiRouter.get('/performance', async (_req, res) => {

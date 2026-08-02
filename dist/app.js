@@ -739,6 +739,101 @@ async function runHourlyPoll(options) {
   console.log("[poll] done");
 }
 
+// src/engines/backtest.ts
+var MIN_BARS = 55;
+var NEUTRAL_QUAL = {
+  marketBias: "neutral",
+  marketScore: 0,
+  newsScore: null,
+  newsSummary: null,
+  score: 0,
+  notes: ["\uBC31\uD14C\uC2A4\uD2B8 \xB7 \uAE30\uC220 \uBD84\uC11D\uB9CC"]
+};
+function runBacktest(bars) {
+  const trades = [];
+  let entryPrice = null;
+  const closedPnls = [];
+  if (bars.length < MIN_BARS) {
+    return {
+      summary: emptySummary(bars.length),
+      trades: []
+    };
+  }
+  for (let i = MIN_BARS - 1; i < bars.length; i += 1) {
+    const window = bars.slice(0, i + 1);
+    const bar = bars[i];
+    const technical = analyzeTechnical(window);
+    const hasOpen = entryPrice !== null;
+    const decision = decideSignal(technical, NEUTRAL_QUAL, hasOpen);
+    const price = bar.close;
+    const executedAt = bar.ts.toISOString();
+    if (decision.side === "buy" && !hasOpen) {
+      entryPrice = price;
+      trades.push({
+        side: "buy",
+        price,
+        executedAt,
+        pnlPct: null,
+        rationale: decision.rationale
+      });
+      continue;
+    }
+    if (decision.side === "sell" && hasOpen && entryPrice !== null) {
+      const pnlPct = (price - entryPrice) / entryPrice * 100;
+      closedPnls.push(pnlPct);
+      trades.push({
+        side: "sell",
+        price,
+        executedAt,
+        pnlPct,
+        rationale: decision.rationale
+      });
+      entryPrice = null;
+    }
+  }
+  let unrealizedPnlPct = null;
+  const last = bars[bars.length - 1];
+  if (entryPrice !== null) {
+    unrealizedPnlPct = (last.close - entryPrice) / entryPrice * 100;
+  }
+  let totalReturnPct = 0;
+  let equity = 1;
+  for (const pnl of closedPnls) {
+    equity *= 1 + pnl / 100;
+  }
+  if (unrealizedPnlPct !== null) {
+    equity *= 1 + unrealizedPnlPct / 100;
+  }
+  totalReturnPct = (equity - 1) * 100;
+  const closedCount = closedPnls.length;
+  const wins = closedPnls.filter((p) => p > 0).length;
+  return {
+    summary: {
+      barCount: bars.length,
+      tradeCount: trades.length,
+      closedCount,
+      winRate: closedCount > 0 ? wins / closedCount : null,
+      avgPnlPct: closedCount > 0 ? closedPnls.reduce((a, b) => a + b, 0) / closedCount : null,
+      totalReturnPct,
+      unrealizedPnlPct,
+      open: entryPrice !== null
+    },
+    trades
+  };
+}
+function emptySummary(barCount) {
+  return {
+    barCount,
+    tradeCount: 0,
+    closedCount: 0,
+    winRate: null,
+    avgPnlPct: null,
+    totalReturnPct: 0,
+    unrealizedPnlPct: null,
+    open: false
+  };
+}
+
 // src/routes/api.ts
 var apiRouter = Router();
 function assertPollAuthorized(req) {
@@ -915,6 +1010,38 @@ apiRouter.get("/trades/:symbolId", async (req, res) => {
     return;
   }
   res.json({ trades: data });
+});
+apiRouter.get("/backtest/:symbolId", async (req, res) => {
+  const timeframe = req.query.timeframe || "1d";
+  const limit = Math.min(Number(req.query.limit ?? defaultLimit(timeframe)), 500);
+  const allowed = ["1h", "4h", "1d", "1w", "1mo", "1y"];
+  if (!allowed.includes(timeframe)) {
+    res.status(400).json({ error: `unsupported timeframe: ${timeframe}` });
+    return;
+  }
+  const client = getAdminClient();
+  const { data: symbol, error: symErr } = await client.from("lr_symbols").select("*").eq("id", req.params.symbolId).maybeSingle();
+  if (symErr) {
+    res.status(500).json({ error: symErr.message });
+    return;
+  }
+  if (!symbol) {
+    res.status(404).json({ error: "symbol not found" });
+    return;
+  }
+  try {
+    const adapter = getAdapter(symbol.market_id);
+    const bars = await adapter.fetchCandles(symbol, timeframe, limit);
+    const result = runBacktest(bars);
+    res.json({
+      timeframe,
+      summary: result.summary,
+      trades: result.trades
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "backtest failed";
+    res.status(500).json({ error: message });
+  }
 });
 apiRouter.get("/performance", async (_req, res) => {
   const client = getAdminClient();
