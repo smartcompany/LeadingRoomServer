@@ -1,0 +1,57 @@
+name: Hourly Signal Poll
+
+on:
+  schedule:
+    # 매시 2분 (UTC)
+    - cron: '2 * * * *'
+  workflow_dispatch:
+    inputs:
+      markets:
+        description: 'Comma-separated markets (crypto,us,kr) or empty for all'
+        required: false
+        default: ''
+
+concurrency:
+  group: leadingroom-hourly-poll
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Environment secrets (Settings → Environments → Production) 사용
+    environment: Production
+    steps:
+      - name: Trigger Vercel poll API
+        env:
+          API_BASE_URL: ${{ secrets.LEADINGROOM_API_URL }}
+          POLL_SECRET: ${{ secrets.POLL_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${API_BASE_URL:-}" ]; then
+            echo "LEADINGROOM_API_URL secret is empty."
+            echo "Add it under Settings → Environments → Production (same place as POLL_SECRET)"
+            echo "Value: https://leading-room-server-ybtk.vercel.app"
+            exit 1
+          fi
+
+          BASE="${API_BASE_URL%/}"
+          MARKETS_INPUT="${{ github.event.inputs.markets }}"
+          if [ -n "$MARKETS_INPUT" ]; then
+            IFS=',' read -r -a MARKETS <<< "$MARKETS_INPUT"
+          else
+            MARKETS=(crypto us kr)
+          fi
+
+          for m in "${MARKETS[@]}"; do
+            m="$(echo "$m" | xargs)"
+            [ -z "$m" ] && continue
+            echo "Polling market=$m"
+            curl --fail --show-error --silent \
+              -X POST "$BASE/api/poll" \
+              -H "Content-Type: application/json" \
+              -H "x-poll-secret: ${POLL_SECRET}" \
+              -d "{\"marketIds\":[\"$m\"]}" \
+              --max-time 90
+            echo
+          done
