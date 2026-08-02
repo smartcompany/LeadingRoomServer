@@ -750,6 +750,12 @@ function assertPollAuthorized(req) {
 apiRouter.get("/health", (_req, res) => {
   res.json({ ok: true, service: "leadingroom" });
 });
+apiRouter.get("/config", (_req, res) => {
+  res.json({
+    supabaseUrl: env.supabaseUrl,
+    supabasePublishableKey: env.supabasePublishableKey
+  });
+});
 apiRouter.get("/markets", async (_req, res) => {
   const client = getAdminClient();
   const { data, error } = await client.from("lr_markets").select("*").order("id");
