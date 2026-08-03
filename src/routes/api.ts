@@ -23,10 +23,15 @@ apiRouter.get('/health', (_req, res) => {
 
 /** Public client bootstrap config (no secrets). */
 apiRouter.get('/config', (_req, res) => {
-  res.json({
-    supabaseUrl: env.supabaseUrl,
-    supabasePublishableKey: env.supabasePublishableKey,
-  });
+  try {
+    res.json({
+      supabaseUrl: env.supabaseUrl,
+      supabasePublishableKey: env.supabasePublishableKey,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'config unavailable';
+    res.status(500).json({ error: message });
+  }
 });
 
 apiRouter.get('/markets', async (_req, res) => {

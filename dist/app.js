@@ -251,38 +251,44 @@ function required(name) {
   }
   return value;
 }
-var cached;
+var cachedPublic;
+var cachedPrivate;
 var env = {
   get port() {
     return Number(process.env.PORT ?? "8787");
   },
   get supabaseUrl() {
-    return load().supabaseUrl;
+    return loadPublic().supabaseUrl;
   },
   get supabasePublishableKey() {
-    return load().supabasePublishableKey;
+    return loadPublic().supabasePublishableKey;
   },
   get supabaseServiceRoleKey() {
-    return load().supabaseServiceRoleKey;
+    return loadPrivate().supabaseServiceRoleKey;
   },
   get geminiApiKey() {
-    return load().geminiApiKey;
+    return loadPrivate().geminiApiKey;
   },
   get pollSecret() {
-    return load().pollSecret;
+    return loadPrivate().pollSecret;
   }
 };
-function load() {
-  if (cached) return cached;
-  cached = {
-    port: Number(process.env.PORT ?? "8787"),
+function loadPublic() {
+  if (cachedPublic) return cachedPublic;
+  cachedPublic = {
     supabaseUrl: required("SUPABASE_URL"),
-    supabasePublishableKey: required("SUPABASE_PUBLISHABLE_KEY"),
+    supabasePublishableKey: required("SUPABASE_PUBLISHABLE_KEY")
+  };
+  return cachedPublic;
+}
+function loadPrivate() {
+  if (cachedPrivate) return cachedPrivate;
+  cachedPrivate = {
     supabaseServiceRoleKey: required("SUPABASE_SERVICE_ROLE_KEY"),
     geminiApiKey: process.env.GEMINI_API_KEY ?? "",
     pollSecret: process.env.POLL_SECRET ?? ""
   };
-  return cached;
+  return cachedPrivate;
 }
 
 // src/lib/supabase.ts
@@ -412,7 +418,6 @@ function analyzeTechnical(bars1d) {
     notes.push(`\uAC70\uB798\uB7C9 ${volumeRatio.toFixed(1)}\uBC30`);
   }
   const atr = atrPct(source, 14);
-  if (atr !== null) notes.push(`ATR \uC190\uC808 \uCD94\uC815 ${atr.toFixed(1)}%`);
   const lookback = source.slice(-30);
   const resistance = Math.max(...lookback.map((b) => b.high));
   const lastClose = closes[closes.length - 1];
@@ -547,7 +552,7 @@ function decideSignal(technical, qualitative, hasOpenPosition2) {
       strength,
       combinedScore: combined,
       rationale,
-      stopHintPct: technical.atrPct
+      stopHintPct: null
     };
   }
   if (hasOpenPosition2 && combined <= SELL_THRESHOLD) {
@@ -739,6 +744,65 @@ async function runHourlyPoll(options) {
   console.log("[poll] done");
 }
 
+// src/engines/scoreBreakdown.ts
+function buildScoreLines(t) {
+  const trendLabel = t.trend === "up" ? "\uC0C1\uC2B9" : t.trend === "down" ? "\uD558\uB77D" : "\uD6A1\uBCF4";
+  return [
+    {
+      key: "trend",
+      label: "\uCD94\uC138",
+      condition: `${trendLabel} (\uC774\uD3C9 MA20\xB7MA50)`,
+      points: round4(t.trendScore * 0.35),
+      active: true
+    },
+    {
+      key: "rsi_recover",
+      label: "RSI",
+      condition: "\uACFC\uB9E4\uB3C4(30 \uC544\uB798)\uC5D0\uC11C \uD68C\uBCF5",
+      points: t.rsiRecoveringFromOversold ? 0.2 : 0,
+      active: t.rsiRecoveringFromOversold
+    },
+    {
+      key: "macd",
+      label: "MACD",
+      condition: "\uC0C1\uD5A5 \uAD50\uCC28\uC77C \uB54C\uB9CC",
+      points: t.macdBullishCross ? 0.2 : 0,
+      active: t.macdBullishCross
+    },
+    {
+      key: "volume",
+      label: "\uAC70\uB798\uB7C9",
+      condition: t.volumeRatio !== null ? `\uD3C9\uC18C \uB300\uBE44 ${t.volumeRatio.toFixed(1)}\uBC30 (\uAE30\uC900 2.4\uBC30)` : "\uD3C9\uC18C \uB300\uBE44 2.4\uBC30 \uC774\uC0C1\uC77C \uB54C\uB9CC",
+      points: t.volumeRatio !== null && t.volumeRatio >= 2.4 ? 0.15 : 0,
+      active: t.volumeRatio !== null && t.volumeRatio >= 2.4
+    },
+    {
+      key: "resistance",
+      label: "\uC800\uD56D",
+      condition: "\uC0C1\uC2B9 \uCD94\uC138 + \uC800\uD56D \uADFC\uC811",
+      points: t.nearResistanceBreak && t.trend === "up" ? 0.1 : 0,
+      active: t.nearResistanceBreak && t.trend === "up"
+    },
+    {
+      key: "rsi_ob",
+      label: "RSI \uACFC\uB9E4\uC218",
+      condition: "70 \uCD08\uACFC",
+      points: t.rsi !== null && t.rsi > 70 ? -0.25 : 0,
+      active: t.rsi !== null && t.rsi > 70
+    },
+    {
+      key: "down_penalty",
+      label: "\uD558\uB77D \uCD94\uC138",
+      condition: "\uCD94\uAC00 \uD398\uB110\uD2F0",
+      points: t.trend === "down" ? -0.2 : 0,
+      active: t.trend === "down"
+    }
+  ];
+}
+function round4(n) {
+  return Math.round(n * 1e4) / 1e4;
+}
+
 // src/engines/backtest.ts
 var MIN_BARS = 55;
 var NEUTRAL_QUAL = {
@@ -747,7 +811,7 @@ var NEUTRAL_QUAL = {
   newsScore: null,
   newsSummary: null,
   score: 0,
-  notes: ["\uBC31\uD14C\uC2A4\uD2B8 \xB7 \uAE30\uC220 \uBD84\uC11D\uB9CC"]
+  notes: []
 };
 function runBacktest(bars) {
   const trades = [];
@@ -767,6 +831,8 @@ function runBacktest(bars) {
     const decision = decideSignal(technical, NEUTRAL_QUAL, hasOpen);
     const price = bar.close;
     const executedAt = bar.ts.toISOString();
+    const scoreLines = buildScoreLines(technical);
+    const forcedSell = decision.rationale.includes("\uCD94\uC138 \uBD95\uAD34 \uCCAD\uC0B0");
     if (decision.side === "buy" && !hasOpen) {
       entryPrice = price;
       trades.push({
@@ -774,7 +840,12 @@ function runBacktest(bars) {
         price,
         executedAt,
         pnlPct: null,
-        rationale: decision.rationale
+        rationale: decision.rationale,
+        stopHintPct: null,
+        techScore: technical.score,
+        combinedScore: decision.combinedScore,
+        forcedSell: false,
+        scoreLines
       });
       continue;
     }
@@ -786,7 +857,12 @@ function runBacktest(bars) {
         price,
         executedAt,
         pnlPct,
-        rationale: decision.rationale
+        rationale: decision.rationale,
+        stopHintPct: decision.stopHintPct,
+        techScore: technical.score,
+        combinedScore: decision.combinedScore,
+        forcedSell,
+        scoreLines
       });
       entryPrice = null;
     }
@@ -847,10 +923,15 @@ apiRouter.get("/health", (_req, res) => {
   res.json({ ok: true, service: "leadingroom" });
 });
 apiRouter.get("/config", (_req, res) => {
-  res.json({
-    supabaseUrl: env.supabaseUrl,
-    supabasePublishableKey: env.supabasePublishableKey
-  });
+  try {
+    res.json({
+      supabaseUrl: env.supabaseUrl,
+      supabasePublishableKey: env.supabasePublishableKey
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "config unavailable";
+    res.status(500).json({ error: message });
+  }
 });
 apiRouter.get("/markets", async (_req, res) => {
   const client = getAdminClient();

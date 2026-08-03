@@ -24,11 +24,14 @@ function required(name: string): string {
   return value;
 }
 
-/** Lazy so Vercel build/import analysis does not require secrets at module load. */
-let cached: {
-  port: number;
+/** Public bootstrap — service role 불필요. */
+let cachedPublic: {
   supabaseUrl: string;
   supabasePublishableKey: string;
+} | undefined;
+
+/** Server-only secrets. */
+let cachedPrivate: {
   supabaseServiceRoleKey: string;
   geminiApiKey: string;
   pollSecret: string;
@@ -39,31 +42,37 @@ export const env = {
     return Number(process.env.PORT ?? '8787');
   },
   get supabaseUrl() {
-    return load().supabaseUrl;
+    return loadPublic().supabaseUrl;
   },
   get supabasePublishableKey() {
-    return load().supabasePublishableKey;
+    return loadPublic().supabasePublishableKey;
   },
   get supabaseServiceRoleKey() {
-    return load().supabaseServiceRoleKey;
+    return loadPrivate().supabaseServiceRoleKey;
   },
   get geminiApiKey() {
-    return load().geminiApiKey;
+    return loadPrivate().geminiApiKey;
   },
   get pollSecret() {
-    return load().pollSecret;
+    return loadPrivate().pollSecret;
   },
 };
 
-function load() {
-  if (cached) return cached;
-  cached = {
-    port: Number(process.env.PORT ?? '8787'),
+function loadPublic() {
+  if (cachedPublic) return cachedPublic;
+  cachedPublic = {
     supabaseUrl: required('SUPABASE_URL'),
     supabasePublishableKey: required('SUPABASE_PUBLISHABLE_KEY'),
+  };
+  return cachedPublic;
+}
+
+function loadPrivate() {
+  if (cachedPrivate) return cachedPrivate;
+  cachedPrivate = {
     supabaseServiceRoleKey: required('SUPABASE_SERVICE_ROLE_KEY'),
     geminiApiKey: process.env.GEMINI_API_KEY ?? '',
     pollSecret: process.env.POLL_SECRET ?? '',
   };
-  return cached;
+  return cachedPrivate;
 }
